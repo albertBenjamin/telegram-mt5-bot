@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(py:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(mkdir:*)",
+      "WebSearch",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(.venv/Scripts/pytest:*)",
+      "Bash(.venv/Scripts/python.exe:*)"
+    ]
+  }
+}
