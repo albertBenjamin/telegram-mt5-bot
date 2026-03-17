@@ -523,16 +523,19 @@ double GetEntryPrice(const Signal &sig, double ask, double bid)
 bool ExecuteSignal(const Signal &sig, long &ticket)
   {
    ticket = -1;
+   // Fix 1: usar el símbolo del gráfico (ej. XAUUSD-STD) en lugar del payload (ej. XAUUSD).
+   // El HMAC sigue verificándose contra sig.symbol del payload — no cambia BuildCanonicalJson.
+   string chart_symbol = Symbol();
 
-   if(!SymbolSelect(sig.symbol, true))
+   if(!SymbolSelect(chart_symbol, true))
      {
-      Print("[EA] Error seleccionando simbolo: ", sig.symbol);
+      Print("[EA] Error seleccionando simbolo: ", chart_symbol);
       return false;
      }
 
-   int    digits = (int)SymbolInfoInteger(sig.symbol, SYMBOL_DIGITS);
-   double ask    = SymbolInfoDouble(sig.symbol, SYMBOL_ASK);
-   double bid    = SymbolInfoDouble(sig.symbol, SYMBOL_BID);
+   int    digits = (int)SymbolInfoInteger(chart_symbol, SYMBOL_DIGITS);
+   double ask    = SymbolInfoDouble(chart_symbol, SYMBOL_ASK);
+   double bid    = SymbolInfoDouble(chart_symbol, SYMBOL_BID);
    double price  = NormalizeDouble(GetEntryPrice(sig, ask, bid), digits);
    double sl     = NormalizeDouble(sig.sl, digits);
 
@@ -542,7 +545,8 @@ bool ExecuteSignal(const Signal &sig, long &ticket)
       for(int i = 0; i < sig.tps_count; i++)
         {
          double tp = NormalizeDouble(sig.tps[i], digits);
-         Print("[EA] DRY_RUN | ", sig.action, " ", sig.symbol,
+         Print("[EA] DRY_RUN | ", sig.action, " ", chart_symbol,
+               " (payload:", sig.symbol, ")",
                " @ ", price, " SL=", sl, " TP", (i + 1), "=", tp,
                " id=", sig.signal_id);
         }
@@ -578,7 +582,7 @@ bool ExecuteSignal(const Signal &sig, long &ticket)
       MqlTradeResult  res = {};
 
       req.action       = action_type;
-      req.symbol       = sig.symbol;
+      req.symbol       = chart_symbol;  // Fix 1: símbolo del gráfico
       req.volume       = InpLotSize;
       req.type         = order_type;
       req.price        = price;
@@ -587,7 +591,9 @@ bool ExecuteSignal(const Signal &sig, long &ticket)
       req.deviation    = InpSlippage;
       req.magic        = InpMagicNum;
       req.comment      = "TG:" + StringSubstr(sig.signal_id, 0, 8) + "#" + IntegerToString(i + 1);
-      req.type_filling = InpFilling;
+      // Fix 2: órdenes pendientes (RANGE/LIMIT) requieren ORDER_FILLING_RETURN en Market Execution.
+      // Solo las órdenes de mercado (DEAL) usan el filling configurable (InpFilling).
+      req.type_filling = (action_type == TRADE_ACTION_DEAL) ? InpFilling : ORDER_FILLING_RETURN;
 
       if(!OrderSend(req, res))
         {
@@ -693,6 +699,7 @@ int OnInit()
    EventSetTimer(InpPollSec);
    Print("=== TelegramSignalEA v1.0 ===");
    Print("[EA] Server: ",  InpServerURL);
+   Print("[EA] Simbolo: ", Symbol(), " (grafico — payload ignorado para ejecucion)");
    Print("[EA] Poll: ",    InpPollSec, "s");
    Print("[EA] Lote: ",    InpLotSize);
    Print("[EA] Magic: ",   InpMagicNum);
