@@ -1,6 +1,7 @@
 import atexit
 import asyncio
 import os
+os.environ['PYTHONIOENCODING'] = 'utf-8'
 import signal
 import sys
 from datetime import datetime, timedelta, timezone
@@ -155,12 +156,13 @@ async def handle_new_message(event: events.NewMessage.Event) -> None:
             )
             return
 
+    safe_text = event.raw_text.encode('utf-8', errors='replace').decode('utf-8')
     logger.info(
         "raw_message_received",
         channel_id=event.chat_id,
         message_id=event.id,
         date=event.date.isoformat(),
-        text=event.raw_text,
+        text=safe_text,
     )
 
     # E2 — Parsear

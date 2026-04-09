@@ -11,7 +11,17 @@
       "WebSearch",
       "Bash(.venv/Scripts/python:*)",
       "Bash(.venv/Scripts/pytest:*)",
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "WebFetch(domain:meetalgo.com)",
+      "WebFetch(domain:danetrades.com)",
+      "WebFetch(domain:docs.match-trade.com)",
+      "WebFetch(domain:app.theneo.io)",
+      "WebFetch(domain:faq.wsfunded.com)",
+      "Bash(dir \"C:\\\\Users\\\\alber\\\\Documents\\\\telegram-mt5-bot\\\\docs\")",
+      "Bash(dir \"C:\\\\Users\\\\alber\\\\Documents\")",
+      "Bash(dir \"C:\\\\Users\\\\alber\\\\Documents\\\\xauusd-strategy\")",
+      "Bash(dir C:\\\\Users\\\\alber\\\\Documents\\\\xauusd-strategy\\\\macro:*)",
+      "Read(//c/Users/alber/Documents/xauusd-strategy/**)"
     ]
   }
 }

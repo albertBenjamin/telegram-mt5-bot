@@ -42,17 +42,27 @@ telegram-mt5-bot/
       dedup_store.py
     utils/
       hmac_utils.py
+      logging_config.py   ← stdout + RotatingFileHandler JSON
+      telegram_notify.py  ← alertas Telegram Bot API
   ea/
     TelegramSignalEA.mq5
   tests/
     test_parser.py
     test_dedup.py
     test_server.py
+  scripts/
+    health_check.py        ← health check + alerta Telegram (Task Scheduler)
+    install_services.bat   ← registra servicios NSSM
+    backup_db.bat          ← backup diario dedup.db + .session
+  deploy/
+    README_deploy.md       ← guía completa VPS Windows
   data/
-    dedup.db          # generado en runtime, en .gitignore
-  .env                # NUNCA commitear
-  .env.example        # plantilla sin valores reales
+    dedup.db               # generado en runtime, en .gitignore
+  logs/                    # generado en runtime, en .gitignore
+  .env                     # NUNCA commitear
+  .env.example             # plantilla sin valores reales
   requirements.txt
+  BACKLOG.md
   CLAUDE.md
 ```
 
@@ -74,9 +84,14 @@ TELEGRAM_SESSION=bot_session
 WHITELIST_CHANNELS=        # IDs numéricos separados por coma
 HMAC_SECRET=               # generar con: python -c "import secrets; print(secrets.token_hex(32))"
 DRY_RUN=True
+CONFIRM_LIVE=              # requerido = "true" cuando DRY_RUN=False (doble confirmación)
 API_HOST=127.0.0.1
 API_PORT=8080
 WHITELIST_SYMBOLS=XAUUSD,EURUSD,GBPUSD,USDJPY,GBPJPY
+LOG_FILE_SERVER=logs/server.log      # vacío = solo stdout
+LOG_FILE_LISTENER=logs/listener.log  # vacío = solo stdout
+ALERT_BOT_TOKEN=           # token bot de alertas (BotFather) — regenerar si da 401
+ALERT_CHAT_ID=             # chat_id destino de alertas
 ```
 
 ## Modelo de señal (JSON)
@@ -165,8 +180,11 @@ No avanzar al siguiente epic sin tests pasando en el actual.
 source .venv/bin/activate          # Linux/Mac
 .venv\Scripts\activate             # Windows
 
-# Correr el server
+# Correr el server (desarrollo)
 uvicorn src.server.server:app --host 127.0.0.1 --port 8080 --reload
+
+# Correr el server (producción — sin reload)
+uvicorn src.server.server:app --host 127.0.0.1 --port 8080 --workers 1
 
 # Correr el listener
 python src/listener/telegram_listener.py
@@ -176,36 +194,70 @@ pytest tests/ -v
 
 # Generar HMAC_SECRET
 python -c "import secrets; print(secrets.token_hex(32))"
+
+# Health check manual
+python scripts/health_check.py
+
+# Kill switch de emergencia (desde el VPS)
+curl -X POST http://127.0.0.1:8080/admin/kill-switch
+
+# Estado servicios NSSM (VPS — nssm no está en PATH)
+C:\tools\nssm.exe status bot-server
+C:\tools\nssm.exe status bot-listener
 ```
 
 ## Estado actual del proyecto
 
-**91 tests pasando. Próximo: E5 (EA MQL5).**
+**BOT EN PRODUCCIÓN. 93 tests pasando.**
 
-### Epics completados
+### Estado por epic
 
 | Epic | Estado | Tests |
 |---|---|---|
 | E0 — Entorno | ✅ | — |
-| E1 — Telegram Listener | ✅ E1-1..E1-4 | — |
-| E2 — Signal Parser | ✅ E2-1..E2-6 | 46 |
-| E3 — Dedup Store | ✅ E3-1..E3-2 | 19 |
-| E4 — API Server | ✅ E4-1..E4-7 | 26 |
-| E5 — EA MQL5 | ⏳ pendiente | — |
-| E6 — Integración | ⏳ pendiente | — |
-| E7 — Hardening | ⏳ pendiente | — |
+| E1 — Telegram Listener | ✅ | — |
+| E2 — Signal Parser | ✅ | 48 |
+| E3 — Dedup Store | ✅ | 19 |
+| E4 — API Server | ✅ | 26 |
+| E5 — EA MQL5 | ✅ | — |
+| E6 — Integración | ✅ | — |
+| Fase 2 — Hardening pre-VPS | ✅ | — |
+| E7 — Hardening post-deploy | ⏳ pendiente | — |
+
+### Configuración de producción (VPS)
+
+- **NSSM**: `C:\tools\nssm.exe` — no está en PATH, invocar con ruta completa
+- **Servicios**: `bot-server` y `bot-listener` (auto-start, auto-restart con NSSM)
+- **Cuenta MT5**: #24430609, servidor VTMarkets-Live7
+- **Símbolo**: XAUUSD-STD en el gráfico del EA; el canal envía "XAUUSD" (el EA mapea con `Symbol()`)
+- **LotSize EA**: 0.03
+- **DRY_RUN**: False en producción (requiere `CONFIRM_LIVE=true`)
+- **Alerta bot Telegram**: regenerar token desde BotFather si aparece error 401 Unauthorized
+
+### Validación en producción
+
+- Pipeline end-to-end validado en cuenta real #24430609 (VTMarkets-Live7)
+- Señal test SELL XAUUSD → 3 `SELL_LIMIT` ejecutadas (tickets 1115644, 1115645, 1115647)
+- `status=executed` confirmado por EA al server
 
 ### Archivos clave implementados
 
 ```
-src/listener/telegram_listener.py  — Telethon, whitelist, timestamp 60s, PID lock
+src/listener/telegram_listener.py  — Telethon, whitelist, SIGTERM graceful, logging a archivo
 src/listener/list_channels.py      — helper de un solo uso para obtener channel IDs
 src/parser/models.py               — ParsedSignal, EntryPrice, ParseError, ValidationError, NoOpSignal
 src/parser/signal_parser.py        — process(), parse(), validate(); regex anti-ReDoS
 src/store/dedup_store.py           — DedupStore SQLite, WAL, threading.Lock
-src/server/server.py               — FastAPI, 6 endpoints, middleware 127.0.0.1, asyncio.Queue, slowapi
+src/server/server.py               — FastAPI, 6 endpoints, Queue(maxsize=100), DRY_RUN doble confirmación
 src/utils/hmac_utils.py            — sign(), verify() con canonical JSON + compare_digest
-tests/test_parser.py               — 46 tests parametrizados
+src/utils/logging_config.py        — configure_logging(): stdout ConsoleRenderer + RotatingFileHandler JSON
+src/utils/telegram_notify.py       — send_alert() async: alertas startup + señal recibida
+scripts/health_check.py            — polling /health cada 5 min, alerta tras 2 fallos (Task Scheduler)
+scripts/install_services.bat       — registra bot-server y bot-listener con NSSM
+scripts/backup_db.bat              — backup diario dedup.db + .session, retención 7 días
+deploy/README_deploy.md            — guía completa de 0 a producción en VPS Windows
+ea/TelegramSignalEA.mq5            — polling 2s, Symbol() para ejecución, HMAC con payload symbol
+tests/test_parser.py               — 48 tests parametrizados
 tests/test_dedup.py                — 19 tests (idempotencia, persistencia, concurrencia)
 tests/test_server.py               — 26 tests con httpx + anyio
 ```
@@ -220,6 +272,9 @@ tests/test_server.py               — 26 tests con httpx + anyio
 - **Estado del server**: variables de módulo (`_queue`, `_kill_switch`, `_dedup`) reseteables en tests
 - **Tests async**: `@pytest.mark.anyio` + `httpx.AsyncClient` con `ASGITransport`
 - **IP externa en tests**: `ASGITransport(app=app, client=("10.0.0.1", 9999))`
+- **EA — símbolo**: `Symbol()` del gráfico para ejecución; `sig.symbol` del payload solo para HMAC canonical
+- **EA — Market Execution filling**: `ORDER_FILLING_RETURN` forzado en `TRADE_ACTION_PENDING`; `InpFilling` configurable solo en `TRADE_ACTION_DEAL`
+- **Logging**: processor tee en structlog — escribe JSON a archivo antes de ConsoleRenderer; no requiere stdlib integration
 
 ### E1 — detalles del listener
 
@@ -229,23 +284,7 @@ tests/test_server.py               — 26 tests con httpx + anyio
 
 ### E4 — comportamiento de endpoints
 
-- `POST /api/v1/signal`: kill_switch→503, HMAC→401, duplicate→409, ok→200
+- `POST /api/v1/signal`: kill_switch→503, HMAC→401, duplicate→409, queue_full→503, ok→200
 - `GET /api/v1/pending-signal`: kill_switch→503, vacío→204, señal→200
 - `POST /api/v1/confirm`: status válido: `"executed"` | `"failed"`, unknown→404, bad_status→422
 - Kill switch bloquea tanto recepción como despacho de señales
-
-### Comandos para correr el proyecto
-
-```bash
-# Activar venv (Windows)
-.venv\Scripts\activate
-
-# Tests
-pytest tests/ -v
-
-# Server
-uvicorn src.server.server:app --host 127.0.0.1 --port 8080 --reload
-
-# Listener
-python src/listener/telegram_listener.py
-```

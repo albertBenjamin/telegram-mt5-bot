@@ -1,9 +1,9 @@
 # Bot Trading — Backlog
 
 ## Estado general
-- Código: production-ready (Fase 2 completa)
+- **BOT EN PRODUCCIÓN** — cuenta real #24430609, VTMarkets-Live7, XAUUSD-STD
 - Tests: 93 pasando
-- Pendiente: deploy en VPS Windows
+- Pipeline validado: señal test → 3 SELL_LIMIT ejecutadas (tickets 1115644, 1115645, 1115647)
 
 ---
 
@@ -29,44 +29,23 @@
 - [x] backup_db.bat (dedup.db + .session diario, retención 7 días)
 - [x] deploy/README_deploy.md (guía completa de 0 a producción)
 
----
+### Deploy VPS y puesta en producción
+- [x] VPS Windows contratado y configurado
+- [x] Python, MT5, NSSM instalados (`C:\tools\nssm.exe` — no en PATH)
+- [x] Servicios NSSM registrados: `bot-server` y `bot-listener`
+- [x] MT5 conectado a VTMarkets-Live7, cuenta #24430609, símbolo XAUUSD-STD
+- [x] `.env` configurado con DRY_RUN=False + CONFIRM_LIVE=true
+- [x] Token bot Telegram regenerado desde BotFather (token anterior dio 401 Unauthorized)
+- [x] Health check verificado: alerta llega al bot antes de dejar correr
 
-## Pendiente — Lunes: Deploy en VPS
-
-### 0. Contratar VPS Windows
-Ver sección "Opciones VPS" abajo. Recomendación: preguntar primero a VT Markets.
-
-### 1. Seguir deploy/README_deploy.md
-Cubre: Python, MT5, NSSM, clonar repo, venv, tests, autenticación Telethon.
-
-### 2. Configurar .env en el VPS
-```env
-DRY_RUN=False
-CONFIRM_LIVE=true
-ALERT_BOT_TOKEN=<token>
-ALERT_CHAT_ID=<chat_id>
-LOG_FILE_SERVER=logs/server.log
-LOG_FILE_LISTENER=logs/listener.log
-```
-
-### 3. Configurar MT5
-- Cuenta: #24430609
-- Servidor: VTMarkets-Live7
-- Símbolo: XAUUSD-STD
-- LotSize en propiedades del EA: 0.03
-- Habilitar WebRequest para: http://127.0.0.1:8080
-
-### 4. Verificar antes de dejar correr
-- [ ] `nssm status bot-server` → RUNNING
-- [ ] `nssm status bot-listener` → RUNNING
-- [ ] `curl http://127.0.0.1:8080/health` → `{"status":"ok"}`
-- [ ] Health check manual llega al bot: `python scripts/health_check.py`
-- [ ] Alerta de arranque llegó al Telegram
-- [ ] Enviar señal de prueba desde el canal y verificar que el EA la ejecuta
+### Fixes EA — VT Markets Live
+- [x] **Fix símbolo**: EA usaba `sig.symbol` ("XAUUSD") → cambiado a `Symbol()` (símbolo del gráfico = "XAUUSD-STD"). HMAC sigue validándose con `sig.symbol` del payload (correcto).
+- [x] **Fix Market Execution**: `req.type_filling` para órdenes pendientes (RANGE/LIMIT) forzado a `ORDER_FILLING_RETURN`. Órdenes de mercado (DEAL) siguen usando `InpFilling` configurable.
 
 ---
 
-## Fase 3 — E7 Hardening (post-deploy, cuando el bot esté estable)
+## Pendiente — E7 Hardening (cuando el bot esté estable en producción)
+
 - [ ] Monitoreo de equity/drawdown (pausar si pérdida supera X%)
 - [ ] Reconexión automática del listener si se cae Telethon
 - [ ] Tests de integración end-to-end automatizados
@@ -74,16 +53,23 @@ LOG_FILE_LISTENER=logs/listener.log
 
 ---
 
-## Opciones VPS Windows
+## Referencia VPS
 
-| Opción | Precio | Notas |
-|--------|--------|-------|
-| **VT Markets VPS** | Gratis/subsidiado | Revisar en tu portal — brokers suelen dar VPS gratis con volumen. Primera opción. |
-| **Contabo** | ~$14/mes | 4 vCPU, 8GB RAM, Windows. El más barato que funciona bien. |
-| **Hostinger VPS** | ~$12-18/mes | Fácil de configurar, buena latencia. |
-| AWS / Azure / GCP | ~$30-50/mes | Más confiable pero overkill para este caso. |
+| Item | Valor |
+|------|-------|
+| NSSM | `C:\tools\nssm.exe` (no en PATH) |
+| Cuenta MT5 | #24430609 |
+| Servidor MT5 | VTMarkets-Live7 |
+| Símbolo | XAUUSD-STD |
+| LotSize | 0.03 |
+| DRY_RUN | False |
+| CONFIRM_LIVE | true |
 
-**Specs mínimas necesarias:** 2 vCPU, 4 GB RAM, Windows Server 2019.
-MT5 + Python + FastAPI son ligeros — Contabo es suficiente.
-
-**Recomendación:** primero consulta a VT Markets si tienen VPS gratis (algunos brokers lo dan con cierto volumen). Si no, ve con Contabo.
+**Comandos útiles en el VPS:**
+```cmd
+C:\tools\nssm.exe status bot-server
+C:\tools\nssm.exe status bot-listener
+C:\tools\nssm.exe restart bot-server
+curl -X POST http://127.0.0.1:8080/admin/kill-switch
+python scripts/health_check.py
+```
